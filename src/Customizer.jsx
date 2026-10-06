@@ -12,7 +12,10 @@ export default function Customizer({
   const [flavors, setFlavors] = useState(
     initial?.flavors ||
       Object.fromEntries(
-        p.flavors.map((f, i) => [f, i === 0 ? p.includedScoops : 0]),
+        p.flavors.map((f, i) => [
+          f,
+          i === 0 ? (p.id === "litro" ? 1 : p.includedScoops) : 0,
+        ]),
       ),
   );
   const [adds, setAdds] = useState(initial?.additions || []),
@@ -29,7 +32,8 @@ export default function Customizer({
       (s, id) => s + catalog.additions.find((a) => a.id === id).price,
       0,
     ) +
-    Math.max(0, scoops - p.includedScoops) * p.extraScoopPrice;
+    (p.id === "litro" ? 0 : Math.max(0, scoops - p.includedScoops)) *
+      p.extraScoopPrice;
   function toggleRemoval(item) {
     setRemovals((prev) =>
       prev.includes(item) ? prev.filter((x) => x !== item) : [...prev, item],
@@ -37,7 +41,10 @@ export default function Customizer({
     if (item === "helado")
       setFlavors(
         Object.fromEntries(
-          p.flavors.map((f, i) => [f, noIce && i === 0 ? p.includedScoops : 0]),
+          p.flavors.map((f, i) => [
+            f,
+            noIce && i === 0 ? (p.id === "litro" ? 1 : p.includedScoops) : 0,
+          ]),
         ),
       );
   }
@@ -76,6 +83,19 @@ export default function Customizer({
       <p className="tiny">
         Imagen de referencia · Personalizaciones en demostración.
       </p>
+      {p.id === "litro" && (
+        <label className="field">
+          Elige un solo sabor
+          <select
+            value={Object.entries(flavors).find(([, n]) => n === 1)?.[0] || ""}
+            onChange={(e) => setFlavors({ [e.target.value]: 1 })}
+          >
+            {p.flavors.map((f) => (
+              <option key={f}>{f}</option>
+            ))}
+          </select>
+        </label>
+      )}
       {p.includedScoops > 0 && (
         <section className="option-section">
           <div className="section-row">
@@ -85,8 +105,11 @@ export default function Customizer({
             </span>
           </div>
           <p className="tiny">
-            Puedes repetir sabor. Bola adicional: {money(p.extraScoopPrice)}{" "}
-            (precio de prueba).
+            Puedes repetir sabor. Bola adicional: {money(p.extraScoopPrice)} (
+            {p.source === "Britech / Neon"
+              ? "catálogo Britech"
+              : "precio de prueba"}
+            ).
           </p>
           {p.flavors.map((f) => (
             <div className="option-row" key={f}>

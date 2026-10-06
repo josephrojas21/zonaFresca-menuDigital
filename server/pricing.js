@@ -14,7 +14,7 @@ export const lineSchema = z
   })
   .strict();
 export const cartSchema = z.array(lineSchema).max(60);
-export function calculate(raw, catalog = products) {
+export function calculate(raw, catalog = products, extraCatalog = additions) {
   const cart = cartSchema.parse(raw);
   if (new Set(cart.map((l) => l.id)).size !== cart.length)
     throw Error("Cada línea debe tener un identificador único.");
@@ -61,7 +61,7 @@ export function calculate(raw, catalog = products) {
       throw Error("Escoge una variedad válida.");
     const extras =
       line.additions.reduce(
-        (s, id) => s + additions.find((a) => a.id === id).price,
+        (s, id) => s + extraCatalog.find((a) => a.id === id).price,
         0,
       ) +
       (p.id === "litro" ? 0 : Math.max(0, scoops - p.includedScoops)) *
@@ -103,9 +103,10 @@ export function quote(
   method = "pickup",
   address = "",
   catalog = products,
+  extraCatalog = additions,
 ) {
   if (method === "pickup") address = "";
-  const result = calculate(cart, catalog),
+  const result = calculate(cart, catalog, extraCatalog),
     delivery = deliveryAdapter.quote(method, address);
   const total = delivery.fee === null ? null : result.subtotal + delivery.fee;
   const token = createHash("sha256")

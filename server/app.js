@@ -16,11 +16,14 @@ const customerSchema = z
   })
   .strict();
 const deliverySchema = z.enum(["pickup", "delivery"]);
-export function createApp(store, { secure = false, origin } = {}) {
+export function createApp(
+  store,
+  { secure = false, origin, catalogSource } = {},
+) {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "48kb" }));
-  app.use("/api", (req, res, next) => {
+  app.use("/api", async (req, res, next) => {
     res.set("Cache-Control", "no-store");
     res.set("X-Content-Type-Options", "nosniff");
     if (
@@ -38,10 +41,12 @@ export function createApp(store, { secure = false, origin } = {}) {
       .map((s) => s.trim())
       .find((s) => s.startsWith("zf_session="))
       ?.slice(11);
-    let session = /^[a-f0-9]{64}$/.test(sid || "") ? store.session(sid) : null;
+    let session = /^[a-f0-9]{64}$/.test(sid || "")
+      ? await store.session(sid)
+      : null;
     if (!session) {
       sid = randomBytes(32).toString("hex");
-      session = store.createSession(sid);
+      session = await store.createSession(sid);
       res.cookie("zf_session", sid, {
         httpOnly: true,
         secure,
@@ -54,42 +59,60 @@ export function createApp(store, { secure = false, origin } = {}) {
     req.session = session;
     next();
   });
-  app.get("/api/bootstrap", (req, res) => {
+  const readCatalog =
+    catalogSource ||
+    (() => (store.catalog ? store.catalog() : catalogAdapter.get()));
+  app.get("/api/bootstrap", async (req, res) => {
+    const catalog = await readCatalog();
     const cart = JSON.parse(req.session.cart);
     let priced = null,
       cartError = null;
     try {
-      priced = calculate(cart);
+      priced = calculate(cart, catalog.products, catalog.additions);
     } catch (e) {
       cartError = e.message;
     }
     res.json({
-      catalog: catalogAdapter.get(),
+      catalog,
       cart,
       priced,
       cartError,
       profile: req.session.profile ? JSON.parse(req.session.profile) : null,
     });
   });
-  app.put("/api/cart", (req, res) => {
+  app.put("/api/cart", async (req, res) => {
     const cart = cartSchema.parse(req.body.cart);
-    const priced = calculate(cart);
-    store.cart(req.sid, cart);
+    const catalog = await readCatalog();
+    const priced = calculate(cart, catalog.products, catalog.additions);
+    await store.withSessionLock(req.sid, (locked) =>
+      locked.cart(req.sid, cart),
+    );
     res.json({ cart, priced });
   });
-  app.delete("/api/profile", (req, res) => {
-    store.profile(req.sid, null);
+  app.delete("/api/profile", async (req, res) => {
+    await store.withSessionLock(req.sid, (locked) =>
+      locked.profile(req.sid, null),
+    );
     res.json({ ok: true });
   });
-  app.post("/api/quote", (req, res) => {
+  app.post("/api/quote", async (req, res) => {
     const method = deliverySchema.parse(req.body.method);
     const address = z
       .string()
       .max(200)
       .parse(req.body.address || "");
-    res.json(quote(JSON.parse(store.session(req.sid).cart), method, address));
+    const catalog = await readCatalog();
+    res.json(
+      quote(
+        JSON.parse((await store.session(req.sid)).cart),
+        method,
+        address,
+        catalog.products,
+        catalog.additions,
+      ),
+    );
   });
-  app.post("/api/orders", (req, res) => {
+  app.post("/api/orders", async (req, res) => {
     const input = z
       .object({
         key: z.string().uuid(),
@@ -108,65 +131,89 @@ export function createApp(store, { secure = false, origin } = {}) {
     const fingerprint = createHash("sha256")
       .update(JSON.stringify(input))
       .digest("hex");
-    const existing = store.existing(req.sid, input.key);
-    if (existing) {
-      if (existing.fingerprint !== fingerprint)
-        return res
-          .status(409)
-          .json({ error: "Esta confirmación ya se usó con otros datos." });
-      return res.json(existing.data);
-    }
-    if (input.method === "delivery" && input.customer.address.length < 8)
-      return res
-        .status(400)
-        .json({ error: "Escribe una dirección completa para el domicilio." });
-    const cart = JSON.parse(store.session(req.sid).cart);
-    if (!cart.length)
-      return res
-        .status(400)
-        .json({ error: "Agrega productos antes de confirmar." });
-    const latest = quote(cart, input.method, input.customer.address);
-    if (latest.token !== input.quoteToken)
-      return res
-        .status(409)
-        .json({
-          error: "El resumen cambió. Revisa y acepta los nuevos valores.",
-          quote: latest,
-        });
-    if (latest.total === null)
-      return res.status(400).json({ error: "Falta calcular el domicilio." });
-    if (input.cash !== "exact" && input.cash < latest.total)
-      return res
-        .status(400)
-        .json({ error: "El efectivo debe cubrir el total." });
-    const customer = {
-      ...input.customer,
-      ...(input.method === "pickup" ? { address: "", instructions: "" } : {}),
-    };
-    const order = store.createOrder(
-      req.sid,
-      input.key,
-      fingerprint,
-      {
-        ...latest,
-        customer,
-        method: input.method,
-        payment: "cash",
-        cash: input.cash,
-      },
-      input.remember,
-    );
-    res.status(201).json(order);
+    await store
+      .withSessionLock(req.sid, async (lockedStore) => {
+        const existing = await lockedStore.existing(req.sid, input.key);
+        if (existing) {
+          if (existing.fingerprint !== fingerprint)
+            return res
+              .status(409)
+              .json({ error: "Esta confirmación ya se usó con otros datos." });
+          return res.json(existing.data);
+        }
+        if (input.method === "delivery" && input.customer.address.length < 8)
+          return res.status(400).json({
+            error: "Escribe una dirección completa para el domicilio.",
+          });
+        const cart = JSON.parse((await lockedStore.session(req.sid)).cart);
+        if (!cart.length)
+          return res
+            .status(400)
+            .json({ error: "Agrega productos antes de confirmar." });
+        const catalog = catalogSource
+          ? await catalogSource()
+          : lockedStore.catalog
+            ? await lockedStore.catalog()
+            : catalogAdapter.get();
+        const latest = quote(
+          cart,
+          input.method,
+          input.customer.address,
+          catalog.products,
+          catalog.additions,
+        );
+        if (latest.token !== input.quoteToken)
+          return res.status(409).json({
+            error: "El resumen cambió. Revisa y acepta los nuevos valores.",
+            quote: latest,
+          });
+        if (latest.total === null)
+          return res
+            .status(400)
+            .json({ error: "Falta calcular el domicilio." });
+        if (input.cash !== "exact" && input.cash < latest.total)
+          return res
+            .status(400)
+            .json({ error: "El efectivo debe cubrir el total." });
+        const customer = {
+          ...input.customer,
+          ...(input.method === "pickup"
+            ? { address: "", instructions: "" }
+            : {}),
+        };
+        const order = await lockedStore.createOrder(
+          req.sid,
+          input.key,
+          fingerprint,
+          {
+            ...latest,
+            customer,
+            method: input.method,
+            payment: "cash",
+            cash: input.cash,
+          },
+          input.remember,
+        );
+        return order;
+      })
+      .then((order) => {
+        if (!res.headersSent) res.status(201).json(order);
+      });
   });
   app.use("/api", (err, req, res, next) => {
-    res
-      .status(400)
-      .json({
+    if (err.code || err.message?.includes("connect")) {
+      console.error("Database operation failed", err.code || "connection");
+      return res.status(503).json({
         error:
-          err instanceof z.ZodError
-            ? err.issues.map((i) => i.message).join(" ")
-            : err.message || "No se pudo completar la solicitud.",
+          "El servicio no está disponible temporalmente. Intenta de nuevo.",
       });
+    }
+    res.status(400).json({
+      error:
+        err instanceof z.ZodError
+          ? err.issues.map((i) => i.message).join(" ")
+          : err.message || "No se pudo completar la solicitud.",
+    });
   });
   return app;
 }

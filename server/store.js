@@ -7,8 +7,24 @@ export function createStore(file) {
   db.exec(`CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, cart TEXT NOT NULL DEFAULT '[]', profile TEXT, expires INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, idem TEXT NOT NULL, fingerprint TEXT NOT NULL, data TEXT NOT NULL, UNIQUE(session_id,idem));
  CREATE TABLE IF NOT EXISTS outbox (id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES orders(id), status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0);`);
+  const locks = new Map();
   return {
     db,
+    async withSessionLock(id, fn) {
+      const previous = locks.get(id) || Promise.resolve();
+      let release;
+      const pending = new Promise((r) => {
+        release = r;
+      });
+      locks.set(id, pending);
+      await previous;
+      try {
+        return await fn(this);
+      } finally {
+        release();
+        if (locks.get(id) === pending) locks.delete(id);
+      }
+    },
     session(id) {
       return db
         .prepare("SELECT * FROM sessions WHERE id=? AND expires>?")

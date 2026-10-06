@@ -25,3 +25,12 @@ La automatización inicial agent-browser permitió revisar renderizado, pero sus
 ## Límites
 
 No se verificaron Neon, n8n, inventario real, cobertura, conciliación bancaria ni entrega física. No se enviaron mensajes ni crearon pedidos reales. Las pruebas de notificaciones solo simulan éxito/fallo; el worker de producción permanece pendiente.
+
+## Integración Neon y Vercel — 6 de octubre de 2026
+
+- Migración de tablas nuevas ensayada primero en una transacción con rollback y luego aplicada. Sin cambios a tablas operativas ni workflows.
+- Rol de aplicación sin permisos directos a `public.orders`, `public.clients`, `public.conversations` ni `public.menu_items`. La vista permite únicamente el catálogo de Zona Fresca.
+- 18 pruebas originales aprobadas después de convertir el backend a operaciones asíncronas.
+- Suite Neon: 9 escenarios (10 tests contando el contenedor) aprobados usando el rol restringido y el esquema QA. Incluyen persistencia entre pools, aislamiento, CHECK de tenant, rollback después de insertar pedido, concurrencia de dos confirmaciones, idempotencia, consentimiento/olvido y cambios de precio.
+- Los datos sintéticos creados por la suite se eliminan por sus IDs al terminar. No se escriben pedidos operativos ni se envían mensajes.
+- Compilación Vite correcta; variables locales de Neon y configuración de Vercel verificadas como ignoradas por Git.
