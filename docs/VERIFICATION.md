@@ -24,7 +24,7 @@ La automatización inicial agent-browser permitió revisar renderizado, pero sus
 
 ## Límites
 
-No se verificaron Neon, n8n, inventario real, cobertura, conciliación bancaria ni entrega física. No se enviaron mensajes ni crearon pedidos reales. Las pruebas de notificaciones solo simulan éxito/fallo; el worker de producción permanece pendiente.
+En la verificación inicial no se verificó Neon; la integración posterior se documenta abajo. Siguen pendientes n8n, inventario real, cobertura, conciliación bancaria y entrega física. No se enviaron mensajes ni crearon pedidos reales. Las pruebas de notificaciones solo simulan éxito/fallo; el worker de producción permanece pendiente.
 
 ## Integración Neon y Vercel — 6 de octubre de 2026
 
@@ -34,3 +34,13 @@ No se verificaron Neon, n8n, inventario real, cobertura, conciliación bancaria 
 - Suite Neon: 9 escenarios (10 tests contando el contenedor) aprobados usando el rol restringido y el esquema QA. Incluyen persistencia entre pools, aislamiento, CHECK de tenant, rollback después de insertar pedido, concurrencia de dos confirmaciones, idempotencia, consentimiento/olvido y cambios de precio.
 - Los datos sintéticos creados por la suite se eliminan por sus IDs al terminar. No se escriben pedidos operativos ni se envían mensajes.
 - Compilación Vite correcta; variables locales de Neon y configuración de Vercel verificadas como ignoradas por Git.
+
+## Despliegue público verificado
+
+- URL: https://zonafresca-menudigital.vercel.app
+- Despliegue Vercel READY: `dpl_2kByw87d59re1FuEwnXwwhPMwt3i`, código `436222e`, equipo `joseph2113s-projects`.
+- Página y `/api/bootstrap`: HTTP 200 sin autenticación de Vercel. Catálogo con fuente `neon` y 38 productos; cookie de sesión Secure y HttpOnly.
+- Navegador publicado: litro a $30.000, selección única de Fresa, carrito conservado al recargar, checkout de recogida y carrito vacío después de confirmar.
+- Pedido sintético `d3733202-4745-4809-b70e-a2c1a666038d` comprobado en las tablas web: `received_demo`, demo activo, outbox `disabled_demo`. Sin inserciones en `public.orders` ni notificaciones.
+- Consola del navegador sin errores ni advertencias. Captura: `docs/hosted-preview.png`.
+- Publicación realizada mediante CLI. La vinculación automática con GitHub falló por acceso; requiere autorizar el repositorio en Vercel para desplegar por push.

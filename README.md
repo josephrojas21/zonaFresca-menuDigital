@@ -1,6 +1,8 @@
 # Zona Fresca · Menú digital
 
-Aplicación React + Vite con servidor Express, PostgreSQL/Neon en Vercel y SQLite opcional para desarrollo sin conexión, exclusivamente para Zona Fresca. Modo demostración explícito: ningún pedido se envía al local. No requiere cuentas ni servicios externos.
+Aplicación React + Vite con servidor Express, PostgreSQL/Neon en Vercel y SQLite opcional para desarrollo sin conexión, exclusivamente para Zona Fresca. Modo demostración explícito: ningún pedido se envía al local. El visitante no necesita crear una cuenta.
+
+Publicado en [zonafresca-menudigital.vercel.app](https://zonafresca-menudigital.vercel.app). Comparte la base Neon de Britech, con tablas web separadas y acceso restringido al catálogo de Zona Fresca.
 
 ## Ejecutar
 
